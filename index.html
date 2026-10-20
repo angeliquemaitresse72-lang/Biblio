@@ -76,7 +76,8 @@ label{font-weight:800;display:grid;gap:4px}
 <div class="sheet">
 <h2>Scanner le code-barres</h2>
 <video id="vid" playsinline muted></video>
-<p style="margin:0">Placez le code-barres du dos du livre (celui qui commence par 978 ou 979) devant la caméra.</p>
+<p id="sstat" style="margin:0;font-weight:700">Placez le code-barres du dos du livre (celui qui commence par 978 ou 979) devant la caméra.</p>
+<div class="row"><input id="sisbn" inputmode="numeric" placeholder="ou tapez l’ISBN ici"><button class="btn ok" id="sgo" style="flex:0 0 auto">OK</button></div>
 <div class="row"><label class="btn find" style="place-items:center;display:grid">📸 Prendre une photo du code<input id="photo" type="file" accept="image/*" capture="environment" hidden></label><button class="btn" id="scanX">Fermer</button></div>
 </div>
 </div>
@@ -201,15 +202,32 @@ async function found(isbn){
  toast("🔎 Recherche en cours…",0);const info=await lookup(isbn);
  const b=Object.assign(blank(),{isbn},info||{});
  openForm(b,true);toast(info?"Livre trouvé. Choisissez le niveau et le genre.":"Livre introuvable ou pas de connexion. Remplissez la fiche à la main.",3500)}
-function stopScan(){try{reader&&reader.reset()}catch{}reader=null;$("scan").hidden=true}
+let stream=null,timer=null,busy=false;
+function stopScan(){clearInterval(timer);timer=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$("vid").srcObject=null;$("scan").hidden=true}
 async function startScan(){
- $("scan").hidden=false;
- if(!window.isSecureContext||!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)){toast("La caméra ne marche que si l’application est ouverte depuis une adresse en https://. Utilisez « Prendre une photo du code ».",7000);return}
- try{const hints=new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13]],[ZXing.DecodeHintType.TRY_HARDER,true]]);
-  reader=new ZXing.BrowserMultiFormatReader(hints,200);
-  await reader.decodeFromConstraints({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}},"vid",(r)=>{if(!r)return;const i=normIsbn(r.getText());if(i){stopScan();found(i)}});
-  toast("Caméra prête : approchez le code-barres, bien éclairé et bien à plat.",4000)}
- catch(err){toast("Caméra impossible ("+(err&&err.name||"erreur")+"). Autorisez la caméra pour ce site dans Réglages > Safari, ou utilisez la photo du code.",8000)}}
+ $("scan").hidden=false;const st=$("sstat");st.textContent="Démarrage de la caméra…";
+ if(!window.isSecureContext||!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)){st.textContent="La caméra ne marche que si l’application est ouverte depuis une adresse en https://. Utilisez la photo du code ou tapez l’ISBN.";return}
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false});
+  const v=$("vid");v.srcObject=stream;v.setAttribute("playsinline","");v.muted=true;await v.play();
+  st.textContent="Caméra active. Approchez le code-barres du dos du livre.";
+  let det=null;if("BarcodeDetector"in window){try{det=new BarcodeDetector({formats:["ean_13"]})}catch{}}
+  const zr=new ZXing.MultiFormatReader();zr.setHints(new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13]],[ZXing.DecodeHintType.TRY_HARDER,true]]));
+  const cv=document.createElement("canvas"),cx=cv.getContext("2d",{willReadFrequently:true});let n=0;
+  timer=setInterval(async()=>{
+   if(!v.videoWidth||busy||!stream)return;busy=true;
+   try{let code="";
+    if(det){try{const r=await det.detect(v);if(r[0])code=r[0].rawValue}catch{}}
+    if(!code){const sc=Math.min(1,1280/v.videoWidth);cv.width=Math.round(v.videoWidth*sc);cv.height=Math.round(v.videoHeight*sc);cx.drawImage(v,0,0,cv.width,cv.height);
+     try{code=zr.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(cv)))).getText()}catch{}}
+    n++;const i=normIsbn(code);
+    if(i){stopScan();found(i)}
+    else if(code)st.textContent="Code lu ("+code+") mais ce n’est pas un ISBN. Cherchez celui qui commence par 978 ou 979.";
+    else if(n%8===0)st.textContent="Je cherche le code… Reculez un peu, bien à plat, avec de la lumière.";
+   }finally{busy=false}
+  },250);
+ }catch(err){st.textContent="Caméra impossible ("+(err&&err.name||"erreur")+"). Autorisez la caméra pour ce site dans Réglages > Safari, ou utilisez la photo du code.";}}
+$("sgo").onclick=()=>{const i=normIsbn($("sisbn").value);if(i){$("sisbn").value="";stopScan();found(i)}else $("sstat").textContent="Cet ISBN n’est pas valide. Vérifiez les chiffres."};
 $("bScan").onclick=startScan;$("scanX").onclick=stopScan;
 $("photo").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;
  const u=URL.createObjectURL(f);try{const r=await new ZXing.BrowserMultiFormatReader(new Map([[ZXing.DecodeHintType.TRY_HARDER,true]])).decodeFromImageUrl(u);const i=normIsbn(r.getText());

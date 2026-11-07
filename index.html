@@ -118,12 +118,28 @@ function normIsbn(s){s=String(s).replace(/[^0-9Xx]/g,"").toUpperCase();
 /* ---------- recherche sur Internet ---------- */
 function resize(blob){return new Promise(res=>{const u=URL.createObjectURL(blob),im=new Image();im.onload=()=>{const m=340,r=Math.min(1,m/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.round(im.width*r);c.height=Math.round(im.height*r);c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL("image/jpeg",.82))};im.onerror=()=>res("");im.src=u})}
 async function coverFrom(url){try{const r=await fetch(url);if(!r.ok)return"";const b=await r.blob();return b.size<1500?"":await resize(b)}catch{return""}}
+async function bnf(isbn){
+ try{const c=new AbortController(),t=setTimeout(()=>c.abort(),7000);
+  const r=await fetch("https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&maximumRecords=1&recordSchema=unimarcxchange&query="+encodeURIComponent('bib.isbn all "'+isbn+'"'),{signal:c.signal});clearTimeout(t);
+  if(!r.ok)return null;
+  const x=new DOMParser().parseFromString(await r.text(),"text/xml"),all=[...x.getElementsByTagNameNS("*","datafield")];
+  const df=t=>all.filter(d=>d.getAttribute("tag")===t);
+  const sf=(d,k)=>{const e=d&&[...d.getElementsByTagNameNS("*","subfield")].find(z=>z.getAttribute("code")===k);return e?e.textContent.trim():""};
+  const d200=df("200")[0];if(!d200)return null;
+  const nm=d=>[sf(d,"b"),sf(d,"a")].filter(Boolean).join(" "),p7=[...df("700"),...df("701"),...df("702")];
+  return{title:sf(d200,"a")+(sf(d200,"e")?" : "+sf(d200,"e"):""),
+   author:p7.filter(d=>sf(d,"4")!=="440").map(nm).filter(Boolean).slice(0,3).join(", "),
+   illustrator:p7.filter(d=>sf(d,"4")==="440").map(nm).filter(Boolean).join(", "),
+   publisher:sf(df("210")[0],"c"),collection:sf(df("225")[0],"a")}
+ }catch{return null}}
 async function lookup(isbn){
  let info=null,gcover="";
  try{const j=await(await fetch("https://www.googleapis.com/books/v1/volumes?q=isbn:"+isbn)).json();const v=j.items&&j.items[0]&&j.items[0].volumeInfo;
   if(v){info={title:v.title+(v.subtitle?" : "+v.subtitle:""),author:(v.authors||[]).join(", "),publisher:v.publisher||""};const il=v.imageLinks||{};gcover=(il.thumbnail||il.smallThumbnail||"").replace("http:","https:")}}catch{}
  if(!info){try{const j=await(await fetch("https://openlibrary.org/api/books?format=json&jscmd=data&bibkeys=ISBN:"+isbn)).json();const v=j["ISBN:"+isbn];
   if(v)info={title:v.title+(v.subtitle?" : "+v.subtitle:""),author:(v.authors||[]).map(a=>a.name).join(", "),publisher:(v.publishers||[]).map(p=>p.name).join(", ")}}catch{}}
+ const bn=await bnf(isbn);
+ if(bn){if(!info)info={title:bn.title,author:bn.author,publisher:bn.publisher};for(const k of["author","publisher","illustrator","collection"])if(!info[k]&&bn[k])info[k]=bn[k]}
  if(info)info.cover=await coverFrom("https://covers.openlibrary.org/b/isbn/"+isbn+"-M.jpg?default=false")||(gcover?await coverFrom(gcover):"");
  return info}
 
@@ -184,7 +200,7 @@ $("ov").addEventListener("click",async e=>{
  case"f_find":{const i=normIsbn($("f_isbn").value);if(!i){toast("Cet ISBN n’est pas valide. Vérifiez les chiffres.");break}
   $("f_isbn").value=i;toast("🔎 Recherche en cours…",0);const info=await lookup(i);
   if(!info){toast("Livre introuvable ou pas de connexion. Remplissez la fiche à la main.",4000);break}
-  readForm();cur.isbn=i;for(const[k,v]of[["title",info.title],["author",info.author],["publisher",info.publisher]])if(!cur[k])cur[k]=v;if(info.cover)cur.cover=info.cover;
+  readForm();cur.isbn=i;for(const[k,v]of[["title",info.title],["author",info.author],["publisher",info.publisher],["illustrator",info.illustrator],["collection",info.collection]])if(!cur[k])cur[k]=v||"";if(info.cover)cur.cover=info.cover;
   const keep=cur;openForm(keep,true);toast("Livre trouvé. Choisissez le niveau et le genre.");break}
  case"f_ok":{readForm();if(!cur.title){toast("Ajoutez au moins le titre du livre.");break}
   const n=normIsbn(cur.isbn);if(n)cur.isbn=n;

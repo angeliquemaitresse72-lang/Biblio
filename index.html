@@ -65,9 +65,10 @@ label{font-weight:800;display:grid;gap:4px}
 <button class="big b4" id="bSave">💾 Sauvegarde</button>
 </div>
 <div class="filters">
-<input id="q" type="search" placeholder="Rechercher un titre, un auteur, un illustrateur, un éditeur…">
+<input id="q" type="search" placeholder="Rechercher un titre, un auteur, un illustrateur, une collection…">
 <div id="chips"></div>
 <select id="gsel"></select>
+<select id="csel"></select>
 </div>
 <div id="grid"></div>
 </main>
@@ -128,15 +129,17 @@ async function lookup(isbn){
 
 /* ---------- affichage ---------- */
 function render(){
- const q=fold($("q").value),g=$("gsel").value;
+ const q=fold($("q").value),g=$("gsel").value,c=$("csel").value;
  const genres=[...new Set([...GENRES,...books.map(b=>b.genre).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,"fr"));
  $("gsel").innerHTML='<option value="">Tous les genres</option>'+genres.map(x=>`<option${x===g?" selected":""}>${esc(x)}</option>`).join("");
+ const colls=[...new Set(books.map(b=>b.collection).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"fr"));
+ $("csel").innerHTML='<option value="">Toutes les collections</option>'+colls.map(x=>`<option${x===c?" selected":""}>${esc(x)}</option>`).join("");
  $("chips").innerHTML=["Tous",...LEVELS].map(l=>{const on=(l==="Tous"?"":l)===lv;return`<button class="chip${on?" on":""}" data-l="${l}" style="--c:${LC[l]||"#1B2559"}">${l}</button>`}).join("");
- const list=books.filter(b=>(!lv||(b.levels||[]).includes(lv))&&(!g||b.genre===g)&&(!q||fold([b.title,b.author,b.illustrator,b.publisher,b.genre,(b.levels||[]).join(" ")].join(" ")).includes(q))).sort((a,b)=>a.title.localeCompare(b.title,"fr"));
+ const list=books.filter(b=>(!lv||(b.levels||[]).includes(lv))&&(!g||b.genre===g)&&(!c||b.collection===c)&&(!q||fold([b.title,b.author,b.illustrator,b.publisher,b.collection,b.genre,(b.levels||[]).join(" ")].join(" ")).includes(q))).sort((a,b)=>a.title.localeCompare(b.title,"fr"));
  $("count").textContent=books.length+" titres · "+books.reduce((s,b)=>s+(+b.count||1),0)+" livres";
  $("grid").innerHTML=list.length?list.map(b=>`<article class="card" data-id="${b.id}" style="--c:${LC[(b.levels||[])[0]]||"#cfc9f5"}">
  <div class="cov">${b.cover?`<img src="${esc(b.cover)}" alt="">`:"📖"}</div><h3>${esc(b.title)}</h3>
- ${b.author?`<p>${esc(b.author)}</p>`:""}${b.illustrator?`<p>ill. ${esc(b.illustrator)}</p>`:""}
+ ${b.author?`<p>${esc(b.author)}</p>`:""}${b.illustrator?`<p>ill. ${esc(b.illustrator)}</p>`:""}${b.collection?`<p>Collection ${esc(b.collection)}</p>`:""}
  <div class="tags">${(b.levels||[]).map(l=>`<span class="tag" style="background:${LC[l]}">${l}</span>`).join("")}${b.genre?`<span class="tag" style="background:${gcol(b.genre)}">${esc(b.genre)}</span>`:""}<span class="tag" style="background:#1B2559">×${b.count||1}</span></div></article>`).join("")
  :`<div class="empty">${books.length?"Aucun livre ne correspond à la recherche.":"La bibliothèque est vide. Touchez « Scanner un livre » pour commencer."}</div>`;
  const last=+localStorage.getItem("lastBackup")||0,days=(Date.now()-last)/864e5;
@@ -145,7 +148,7 @@ function render(){
 }
 
 /* ---------- fiche livre ---------- */
-function blank(){return{id:crypto.randomUUID(),isbn:"",title:"",author:"",illustrator:"",publisher:"",genre:"",count:1,levels:[],cover:""}}
+function blank(){return{id:crypto.randomUUID(),isbn:"",title:"",author:"",illustrator:"",publisher:"",collection:"",genre:"",count:1,levels:[],cover:""}}
 function openForm(b,isNew,focus){
  cur=JSON.parse(JSON.stringify(b));
  const genres=[...new Set([...GENRES,...books.map(x=>x.genre).filter(Boolean)])];
@@ -155,6 +158,7 @@ function openForm(b,isNew,focus){
  <label>Auteur<input id="f_author" value="${esc(cur.author)}"></label>
  <label>Illustrateur<input id="f_ill" value="${esc(cur.illustrator)}"></label>
  <label>Éditeur<input id="f_pub" value="${esc(cur.publisher)}"></label>
+ <label>Collection<input id="f_coll" list="f_cl" value="${esc(cur.collection)}"><datalist id="f_cl">${[...new Set(books.map(x=>x.collection).filter(Boolean))].map(x=>`<option value="${esc(x)}">`).join("")}</datalist></label>
  <label>Genre<input id="f_genre" list="f_gl" value="${esc(cur.genre)}"><datalist id="f_gl">${genres.map(x=>`<option value="${esc(x)}">`).join("")}</datalist></label>
  <div><b>Niveaux</b><div class="row" id="f_lv" style="margin-top:6px">${LEVELS.map(l=>`<button class="chip${cur.levels.includes(l)?" on":""}" data-l="${l}" style="--c:${LC[l]}">${l}</button>`).join("")}</div></div>
  <div class="row"><b style="flex:1">Nombre d’exemplaires</b><button class="btn step" id="f_m">−</button><span id="fcnt">${cur.count}</span><button class="btn step" id="f_p">+</button></div>
@@ -164,7 +168,7 @@ function openForm(b,isNew,focus){
  $("ov").hidden=false;$("ov").scrollTop=0;
  if(focus)$(focus).focus();
 }
-function readForm(){cur.isbn=$("f_isbn").value.trim();cur.title=$("f_title").value.trim();cur.author=$("f_author").value.trim();cur.illustrator=$("f_ill").value.trim();cur.publisher=$("f_pub").value.trim();cur.genre=$("f_genre").value.trim()}
+function readForm(){cur.isbn=$("f_isbn").value.trim();cur.title=$("f_title").value.trim();cur.author=$("f_author").value.trim();cur.illustrator=$("f_ill").value.trim();cur.publisher=$("f_pub").value.trim();cur.collection=$("f_coll").value.trim();cur.genre=$("f_genre").value.trim()}
 function setCover(){$("f_cov").innerHTML=cur.cover?`<img src="${esc(cur.cover)}" alt="">`:"📖"}
 const closeForm=()=>{$("ov").hidden=true;cur=null};
 
@@ -193,7 +197,7 @@ $("ov").addEventListener("click",async e=>{
 $("covin").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(f&&cur){cur.cover=await resize(f);setCover()}};
 $("grid").onclick=e=>{const c=e.target.closest(".card");if(c)openForm(books.find(b=>b.id===c.dataset.id),false)};
 $("chips").onclick=e=>{const b=e.target.closest(".chip");if(b){lv=b.dataset.l==="Tous"?"":b.dataset.l;render()}};
-$("q").oninput=render;$("gsel").onchange=render;
+$("q").oninput=render;$("gsel").onchange=render;$("csel").onchange=render;
 
 /* ---------- scan ---------- */
 async function found(isbn){
